@@ -46,6 +46,35 @@ uid=33(www-data) gid=33(www-data) groups=33(www-data)
 The exploit does not modify the web application. It writes the worker identity
 to an isolated proof volume, and a read-only `index.php` displays that file.
 
+## Quick start
+
+This short path runs the default PHP 8.4.26 browser lab on an x86-64 Linux
+host with Docker Compose v2, Python 3, and `curl`. It binds the vulnerable
+container only to `127.0.0.1:8088`.
+
+```bash
+git clone https://github.com/cbovin/php2shell-poc.git
+cd php2shell-poc
+./start-page.sh 8.4.26
+```
+
+Open <http://127.0.0.1:8088/> and verify that it displays `php-lab`. In a
+second terminal, from the same repository directory, run the restricted proof:
+
+```bash
+python3 poc.py 127.0.0.1:8088
+```
+
+Refresh the page. A successful run adds the `www-data` identity shown above.
+Remove the containers and ephemeral proof volume when finished:
+
+```bash
+./stop-page.sh
+```
+
+For preflight checks, alternative PHP versions, automatic matrix testing, and
+Kubernetes instructions, see [Setup and reproduction](#setup-and-reproduction).
+
 ## How the vulnerability chain works
 
 The lab combines the two related failure modes. CVE-2026-109618 supplies an
@@ -54,31 +83,74 @@ partially initialized before shutdown. CVE-2026-109619 supplies the
 cross-request lifecycle error: worker-global state can retain pointers into a
 request heap after that heap has been released.
 
-```mermaid
-flowchart LR
-    A["Request A<br/>multipart upload"] --> B["Session upload progress<br/>publishes request-owned state"]
-    B --> C["Controlled memory exhaustion"]
-    C --> D["Cleanup is interrupted<br/>request heap is released"]
-    D -. "stale worker-global pointer survives" .-> E["Request B<br/>same Apache worker"]
-    E --> F["Attacker-shaped allocations<br/>reuse selected heap slots"]
-    F --> G["Early session handling<br/>consumes stale state"]
-    G --> H{"Address-resolution profile"}
-    H -->|"8.3.35 / 8.4.26 / 8.5.11"| I["HTTP disclosures<br/>Zend heap + libphp bases"]
-    H -->|"8.2.34 local lab"| J["Docker-assisted lookup<br/>owned container maps"]
-    I --> K["Calibrated fake structures"]
-    J --> K
-    K --> L["Fixed system call<br/>id > /out/p1"]
-    L --> M["Read-only page displays<br/>www-data proof"]
+### Vulnerability-chain architecture
 
-    classDef request fill:#dff3ff,stroke:#1677a8,color:#102a43;
-    classDef vulnerable fill:#fff0d6,stroke:#d97706,color:#4a2a00;
-    classDef decision fill:#eee8ff,stroke:#6d4aff,color:#261447;
-    classDef proof fill:#ddf7e7,stroke:#218653,color:#123524;
-    class A,E request;
-    class B,C,D,F,G vulnerable;
-    class H,I,J,K decision;
-    class L,M proof;
+Read the diagram from top to bottom. Solid arrows represent HTTP or execution
+flow; dashed arrows represent the invalid pointer lifetime that crosses the
+request boundary. The two red nodes identify where each CVE contributes to the
+combined chain.
+
+```mermaid
+flowchart TB
+    CLIENT["Restricted lab client<br/>fixed targets and fixed proof command"]
+
+    subgraph WORKER["Persistent Apache mod_php worker — one OS process"]
+        direction TB
+
+        subgraph PRODUCER["Producer request — request-scoped heap A"]
+            direction LR
+            A1["Multipart request A"] --> A2["Session upload progress<br/>publishes request-owned data"]
+            A2 --> A3["CVE-2026-109618<br/>controlled OOM interrupts cleanup"]
+            A3 --> A4["Request A ends<br/>heap A is released"]
+        end
+
+        GLOBAL[("Worker-global session state<br/>process lifetime")]
+        A2 -->|"stores request pointer"| GLOBAL
+        A4 -.->|"pointer is now stale"| GLOBAL
+
+        subgraph CONSUMER["Consumer request — new request-scoped heap B"]
+            direction LR
+            B1["Multipart request B<br/>same worker"] --> B2["Shaped allocations reclaim<br/>selected heap addresses"]
+            B2 --> B3["CVE-2026-109619<br/>session logic consumes stale state"]
+        end
+
+        A4 -->|"next request on same worker"| B1
+        GLOBAL -.->|"invalid cross-request reference"| B3
+    end
+
+    CLIENT --> A1
+    CLIENT --> B1
+
+    B3 --> MODE{"Profile-specific<br/>address acquisition"}
+    MODE -->|"8.3.35 / 8.4.26 / 8.5.11"| HTTP["Repeated request pairs<br/>disclose Zend heap and libphp bases over HTTP"]
+    MODE -->|"8.2.34 local qualification"| MAPS["Docker-assisted lookup<br/>reads owned container /proc/1/maps"]
+    HTTP --> BASES["Validated heap and module bases<br/>plus exact-build offsets"]
+    MAPS --> BASES
+
+    BASES --> FINAL["Final producer/consumer pair<br/>places calibrated fake structures"]
+    FINAL --> CALL["Controlled indirect call reaches zif_system<br/>command fixed to id > /out/p1"]
+    CALL --> FILE[("Ephemeral proof volume<br/>/out/p1")]
+    FILE --> PAGE["Read-only index.php displays<br/>the www-data identity"]
+
+    classDef client fill:#dff3ff,stroke:#1677a8,color:#102a43,stroke-width:2px;
+    classDef request fill:#fff7e6,stroke:#b45309,color:#4a2a00;
+    classDef cve fill:#ffe3e3,stroke:#cf222e,color:#4c0519,stroke-width:2px;
+    classDef state fill:#fff0d6,stroke:#d97706,color:#4a2a00,stroke-width:2px;
+    classDef resolution fill:#eee8ff,stroke:#6d4aff,color:#261447;
+    classDef proof fill:#ddf7e7,stroke:#218653,color:#123524,stroke-width:2px;
+    class CLIENT client;
+    class A1,A2,A4,B1,B2 request;
+    class A3,B3 cve;
+    class GLOBAL state;
+    class MODE,HTTP,MAPS,BASES,FINAL resolution;
+    class CALL,FILE,PAGE proof;
 ```
+
+> [!NOTE]
+> **Broken lifetime invariant:** once request A ends, no pointer into heap A
+> should remain reachable from process-lifetime worker state. The combined chain
+> becomes possible because that reference survives long enough to be interpreted
+> after request B reuses the address.
 
 The sequence has six important stages:
 
