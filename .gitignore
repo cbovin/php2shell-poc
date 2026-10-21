@@ -1,3 +1,35 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+.coverage
+.pytest_cache/
+.ruff_cache/
+coverage.xml
+htmlcov/
+
+# Local environments and configuration
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+compose.override.yaml
+docker-compose.override.yml
+
+# Build and runtime artifacts
+build/
+dist/
+*.log
+*.pid
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Operating systems
 .DS_Store
+Thumbs.db

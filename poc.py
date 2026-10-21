@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Local-only proof for CVE-2026-109618 and CVE-2026-109619 research labs."""
 
-from collections import Counter
-from dataclasses import dataclass
 import argparse
 import re
 import socket
@@ -11,7 +9,8 @@ import subprocess
 import threading
 import time
 import urllib.parse
-
+from collections import Counter
+from dataclasses import dataclass
 
 PATH = "/index.php"
 COMMAND = b"id>/out/p1"
@@ -233,8 +232,7 @@ def docker_output(arguments):
         result = subprocess.run(
             ["docker", *arguments],
             check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             text=True,
         )
     except FileNotFoundError as error:
