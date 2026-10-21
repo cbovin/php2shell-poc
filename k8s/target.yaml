@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: php-rce-target
+  namespace: php-rce-lab
+  labels:
+    app.kubernetes.io/part-of: php-rce-lab
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: php-rce-target
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: php-rce-target
+        app.kubernetes.io/part-of: php-rce-lab
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: target
+          image: php:8.4.26-apache@sha256:60111400ff77bdc44fa79b4f072afe49a42abba71e0846ad496be4761dc9c11a
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - rm -f /out/p1; chown -R www-data:www-data /out; exec apache2-foreground
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - test -s /var/run/apache2/apache2.pid
+            initialDelaySeconds: 1
+            periodSeconds: 1
+            timeoutSeconds: 1
+            failureThreshold: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
+          volumeMounts:
+            - name: configuration
+              mountPath: /usr/local/etc/php/conf.d/zz-rce-lab.ini
+              subPath: php.ini
+              readOnly: true
+            - name: configuration
+              mountPath: /etc/apache2/conf-enabled/zz-rce-lab.conf
+              subPath: apache.conf
+              readOnly: true
+            - name: configuration
+              mountPath: /var/www/html/index.php
+              subPath: index.php
+              readOnly: true
+            - name: proof
+              mountPath: /out
+      volumes:
+        - name: configuration
+          configMap:
+            name: php-rce-configuration
+        - name: proof
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: target
+  namespace: php-rce-lab
+  labels:
+    app.kubernetes.io/part-of: php-rce-lab
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: php-rce-target
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: target-ingress
+  namespace: php-rce-lab
+  labels:
+    app.kubernetes.io/part-of: php-rce-lab
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: php-rce-target
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: php-rce-proof
+      ports:
+        - port: 80
+          protocol: TCP

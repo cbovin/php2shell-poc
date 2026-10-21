@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: >-
+  If you use this reproduction lab in research, cite the official PHP
+  advisories and this repository, and preserve the upstream credits in NOTICE.md.
+title: "php2shell-poc: reproducible PHP request-lifecycle RCE lab"
+type: software
+authors:
+  - alias: cbovin
+repository-code: "https://github.com/cbovin/php2shell-poc"
+version: 1.0.0
+date-released: 2026-10-21
+keywords:
+  - PHP
+  - security research
+  - CVE-2026-109618
+  - CVE-2026-109619
+  - Docker
+  - Kubernetes
+references:
+  - type: webpage
+    title: "CVE-2026-109618: RCE via OOM corruption"
+    url: "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w"
+  - type: webpage
+    title: "CVE-2026-109619: RCE via stale global state"
+    url: "https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp"

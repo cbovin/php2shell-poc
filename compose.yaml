@@ -1,0 +1,58 @@
+name: php-rce-profile-lab
+
+services:
+  target:
+    image: ${PHP_IMAGE:-php:8.4.26-apache@sha256:60111400ff77bdc44fa79b4f072afe49a42abba71e0846ad496be4761dc9c11a}
+    platform: linux/amd64
+    command:
+      - /bin/sh
+      - -c
+      - rm -f /out/p1; chown -R www-data:www-data /out; exec apache2-foreground
+    restart: "no"
+    volumes:
+      - ./target/php.ini:/usr/local/etc/php/conf.d/zz-rce-lab.ini:ro
+      - ./target/apache.conf:/etc/apache2/conf-enabled/zz-rce-lab.conf:ro
+      - ./target/index.php:/var/www/html/index.php:ro
+      - proof:/out
+    networks:
+      - lab
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test -s /var/run/apache2/apache2.pid
+      interval: 1s
+      timeout: 3s
+      retries: 20
+
+  runner:
+    image: python:3.13-slim@sha256:cf50a4f6ac4f026458b08d5222023d700ac806410dff5e9ca8728fa44f2b850f
+    platform: linux/amd64
+    depends_on:
+      target:
+        condition: service_healthy
+    command:
+      - python3
+      - /app/poc.py
+    user: "65534:65534"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - ./poc.py:/app/poc.py:ro
+    networks:
+      - lab
+
+networks:
+  lab:
+    internal: true
+
+volumes:
+  proof:

@@ -1,0 +1,62 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: php-rce-proof
+  namespace: php-rce-lab
+  labels:
+    app.kubernetes.io/part-of: php-rce-lab
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: php-rce-proof
+        app.kubernetes.io/part-of: php-rce-lab
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      containers:
+        - name: proof
+          image: python:3.13-slim@sha256:cf50a4f6ac4f026458b08d5222023d700ac806410dff5e9ca8728fa44f2b850f
+          imagePullPolicy: IfNotPresent
+          command:
+            - python3
+            - /app/poc.py
+            - target:80
+            - --profile
+            - 8.4.26
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
+          volumeMounts:
+            - name: proof-code
+              mountPath: /app/poc.py
+              subPath: poc.py
+              readOnly: true
+            - name: temporary
+              mountPath: /tmp
+      volumes:
+        - name: proof-code
+          configMap:
+            name: php-rce-proof-code
+        - name: temporary
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
